@@ -387,3 +387,24 @@ for (const trx of transaksiBersih) {
     break;
   }
 }
+//===========================================================
+/*
+1. Karena menu adalah properti object kasir. `this` merujuk pada object kasir itu sendiri.
+
+2. Switch lebih cocok karena hari adalah satu nilai diskret dengan banyak kasus.
+   Saya sengaja tidak menulis break di case "sabtu" agar alurnya jatuh ke "minggu"
+   (dua hari berbagi promo 5000). Hasilnya tetap benar karena satu case menangani keduanya.
+
+3. !trx.pesanan.length bernilai true ketika panjang array 0.
+   3 nilai Falsy: 0, "", null (juga: false, undefined, NaN).
+
+4. break: menghentikan perulangan for transaksi saat target tercapai.
+   continue: melewati item yang tidak valid di hitungSubtotal.
+   Bedanya: break menghentikan seluruh perulangan, continue hanya melompati iterasi saat ini.
+
+5. Karena kita perlu tahu item mana yang valid (untuk mengurangi stok & struk) dan
+   mana yang tidak valid (untuk dilaporkan), bukan hanya totalnya.
+
+6. while di dalam for...of dipakai untuk "mengambil" pecahan satu per satu sampai
+   tidak cukup lagi. Bisa diganti dengan Math.floor(sisa / nilai) dan sisa %= nilai.
+*/
