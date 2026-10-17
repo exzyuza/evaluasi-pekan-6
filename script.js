@@ -155,7 +155,8 @@ console.log(`0 → ${formatRupiah(0)}`);
 //===========================================================
 const transaksiBersih = [];
 
-for (const trananBersih = [];
+for (const trx of transaksi) {
+  const pesananBersih = [];
   for (const item of trx.pesanan) {
     pesananBersih.push({
       menu: bersihkanNama(item.menu),
@@ -173,3 +174,216 @@ for (const trananBersih = [];
 }
 
 console.log(transaksiBersih);
+//===========================================================
+/*
+1. parseInt mengubah teks menjadi bilangan bulat (berhenti di titik/koma pertama).
+   parseFloat mengubah teks menjadi bilangan desimal. Number mengubah seluruh teks
+   menjadi angka dan null jika tidak valid. ubahKeAngka harus menghapus titik dulu
+   karena parseInt("150.000") = 150 (berhenti di titik), bukan 150000.
+
+2. toFixed mengembalikan TEKS. Bukti: typeof (5).toFixed(1) === "string".
+   Akibatnya (5).toFixed(1) + 1 = "5.01" (penggabungan teks), bukan 6.1.
+
+3. replace mengganti kemunculan pertama saja, replaceAll mengganti semua.
+   Di ubahKeAngka saya pakai replaceAll(".", "") agar semua titik ribuan hilang,
+   bukan hanya titik pertama.
+
+4. kode.toUpperCase() mengembalikan string BARU; string di JavaScript immutable.
+   Variabel kode asli tidak diubah karena method tidak memodifikasi nilai aslinya.
+
+5. bersihkanNama = function declaration, agar bisa dipanggil di mana saja (hoisting).
+   ubahKeAngka = function expression, karena saya ingin mendefinisikan sebagai nilai variabel.
+   ambilPersenVoucher = arrow function, karena singkat dan tidak butuh this.
+*/
+//===========================================================
+const TARGET_KAS = 10000000; // besar dulu supaya semua diproses
+
+const kasir = {
+  menu: menu,
+  saldoKas: 0,
+  riwayat: [],
+  pecahan: [50000, 20000, 10000, 5000, 2000, 1000],
+
+  cariMenu(nama) {
+    for (const item of this.menu) {
+      if (item.nama === nama) return item;
+    }
+    return null;
+  },
+
+  hitungSubtotal(pesanan) {
+    let subtotal = 0;
+    const itemValid = [];
+    const itemTidakValid = [];
+
+    for (const item of pesanan) {
+      const found = this.cariMenu(item.menu);
+      if (!found) {
+        itemTidakValid.push({ menu: item.menu, alasan: "Menu tidak ditemukan" });
+        continue;
+      }
+      if (item.jumlah <= 0) {
+        itemTidakValid.push({ menu: item.menu, alasan: "Jumlah tidak valid" });
+        continue;
+      }
+      if (found.stok < item.jumlah) {
+        itemTidakValid.push({ menu: item.menu, alasan: "Stok tidak cukup" });
+        continue;
+      }
+      subtotal += found.harga * item.jumlah;
+      itemValid.push({ menu: item.menu, jumlah: item.jumlah, harga: found.harga });
+    }
+
+    return { subtotal, itemValid, itemTidakValid };
+  },
+
+  hitungPromoHari(hari) {
+    let promo = 0;
+    switch (hari) {
+      case "jumat":
+        promo = 3000;
+        break;
+      case "sabtu":
+      case "minggu":
+        promo = 5000;
+        break;
+      default:
+        promo = 0;
+        break;
+    }
+    return promo;
+  },
+
+  hitungDiskon(subtotal, persenVoucher) {
+    let persenSubtotal;
+    if (subtotal >= 100000) persenSubtotal = 15;
+    else if (subtotal >= 50000) persenSubtotal = 10;
+    else if (subtotal >= 25000) persenSubtotal = 5;
+    else persenSubtotal = 0;
+
+    const persen = Math.max(persenSubtotal, persenVoucher);
+    return Math.round((subtotal * persen) / 100);
+  },
+
+  hitungPajak(nilai, tarif = 0.11) {
+    return Math.round(nilai * tarif);
+  },
+
+  hitungKembalianPecahan(kembalian) {
+    if (kembalian < 0) return null;
+    const hasil = {};
+    let sisa = kembalian;
+    for (const nilai of this.pecahan) {
+      let lembar = 0;
+      while (sisa >= nilai) {
+        sisa -= nilai;
+        lembar++;
+      }
+      if (lembar > 0) hasil[nilai] = lembar;
+    }
+    hasil.sisa = sisa;
+    return hasil;
+  },
+
+  prosesTransaksi(trx) {
+    if (!trx.pelanggan) {
+      const hasil = { kode: trx.kode, pelanggan: trx.pelanggan, status: "DITOLAK", alasan: "Nama pelanggan kosong" };
+      this.riwayat.push(hasil);
+      return hasil;
+    }
+    if (!trx.pesanan.length) {
+      const hasil = { kode: trx.kode, pelanggan: trx.pelanggan, status: "DITOLAK", alasan: "Pesanan kosong" };
+      this.riwayat.push(hasil);
+      return hasil;
+    }
+
+    const { subtotal, itemValid, itemTidakValid } = this.hitungSubtotal(trx.pesanan);
+    if (itemValid.length === 0) {
+      const hasil = { kode: trx.kode, pelanggan: trx.pelanggan, status: "DITOLAK", alasan: "Tidak ada item valid" };
+      this.riwayat.push(hasil);
+      return hasil;
+    }
+
+    const promoHari = this.hitungPromoHari(trx.hari);
+    const diskon = this.hitungDiskon(subtotal, trx.persenVoucher);
+    let setelahDiskon = subtotal - diskon - promoHari;
+    if (setelahDiskon < 0) setelahDiskon = 0;
+    const pajak = this.hitungPajak(setelahDiskon);
+    const total = setelahDiskon + pajak;
+    const kembalian = trx.uangBayar - total;
+    const status = trx.uangBayar >= total ? "LUNAS" : "KURANG";
+
+    const hasil = {
+      kode: trx.kode,
+      pelanggan: trx.pelanggan,
+      status,
+      subtotal,
+      promoHari,
+      diskon,
+      pajak,
+      total,
+      uangBayar: trx.uangBayar,
+      kembalian,
+      pecahanKembalian: null,
+      itemValid,
+      itemTidakValid,
+    };
+
+    if (status === "LUNAS") {
+      for (const item of itemValid) {
+        const found = this.cariMenu(item.menu);
+        found.stok -= item.jumlah;
+      }
+      this.saldoKas += total;
+      hasil.pecahanKembalian = this.hitungKembalianPecahan(kembalian);
+    }
+
+    this.riwayat.push(hasil);
+    return hasil;
+  },
+
+  cetakStruk(hasil) {
+    console.log("========================================");
+    console.log(`Kode      : ${hasil.kode}`);
+    console.log(`Pelanggan : ${hasil.pelanggan}`);
+
+    if (hasil.status === "DITOLAK") {
+      console.log(`Alasan    : ${hasil.alasan}`);
+      console.log("========================================");
+      return;
+    }
+
+    console.log("--- Item ---");
+    for (let i = 0; i < hasil.itemValid.length; i++) {
+      const it = hasil.itemValid[i];
+      console.log(`${i + 1}. ${it.menu} x${it.jumlah} @ ${formatRupiah(it.harga)}`);
+    }
+    if (hasil.itemTidakValid.length > 0) {
+      console.log("--- Item Tidak Valid ---");
+      for (const it of hasil.itemTidakValid) {
+        console.log(`- ${it.menu}: ${it.alasan}`);
+      }
+    }
+    console.log(`Subtotal  : ${formatRupiah(hasil.subtotal)}`);
+    console.log(`Promo Hari: ${formatRupiah(hasil.promoHari)}`);
+    console.log(`Diskon    : ${formatRupiah(hasil.diskon)}`);
+    console.log(`Pajak     : ${formatRupiah(hasil.pajak)}`);
+    console.log(`Total     : ${formatRupiah(hasil.total)}`);
+    console.log(`Bayar     : ${formatRupiah(hasil.uangBayar)}`);
+    console.log(`Kembalian : ${formatRupiah(hasil.kembalian)}`);
+    console.log(`Status    : ${hasil.status}`);
+    if (hasil.pecahanKembalian) {
+      console.log("Pecahan   :", hasil.pecahanKembalian);
+    }
+    console.log("========================================");
+  },
+};
+
+for (const trx of transaksiBersih) {
+  const hasil = kasir.prosesTransaksi(trx);
+  kasir.cetakStruk(hasil);
+  if (kasir.saldoKas >= TARGET_KAS) {
+    console.log("Target kas tercapai");
+    break;
+  }
+}
